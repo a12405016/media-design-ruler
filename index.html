@@ -72,21 +72,13 @@
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }
 
-        #debug-log {
-            font-size: 10px;
-            color: #666;
-            margin-top: 5px;
-            height: 30px;
-            overflow: hidden;
-        }
-
         /* --- 定規エリア --- */
         #ruler-container {
             position: fixed;
             right: 0;
             top: 0;
             bottom: 0;
-            width: 80px; /* バラバラになっても見切れにくいよう少し広めに */
+            width: 80px; 
             background-color: rgba(255, 255, 255, 0.9);
             border-left: 1px solid #999;
             box-shadow: -2px 0 5px rgba(0,0,0,0.05);
@@ -141,7 +133,6 @@
         </div>
         
         <button id="start-btn" onclick="requestSensor()">センサー開始</button>
-        <div id="debug-log"></div>
     </div>
 
     <div id="ruler-container">
@@ -153,18 +144,19 @@
         const slider = document.getElementById('scale-slider');
         const scaleValDisplay = document.getElementById('scale-val');
         const statusDisplay = document.getElementById('status-display');
-        const debugLog = document.getElementById('debug-log');
         const startBtn = document.getElementById('start-btn');
 
         // 定規設定
         let pxPerCm = parseFloat(slider.value);
         const rulerLengthCm = 25;
-        let isChaotic = true; // 初期状態はどうするか（とりあえずバラバラにしておく）
+        
+        // ★変更点：初期状態を false（正常）にする
+        let isChaotic = false; 
 
         // センサー用変数
         let lastX = 0, lastY = 0, lastZ = 0;
         let stillTimer;
-        const THRESHOLD = 0.3; // 動きの感度
+        const THRESHOLD = 0.5; // 動きの感度
         const WAIT_TIME_MS = 800; // 机に置いてからバラバラになるまでの時間
 
         // --- 1. 定規描画ロジック ---
@@ -202,7 +194,7 @@
                     rulerContainer.appendChild(minorUnit);
                 }
             }
-            // 描画後に現在の状態（バラバラか正常か）を適用
+            // 描画後に現在の状態を適用
             applyState();
         }
 
@@ -246,7 +238,6 @@
 
         // --- 3. センサーロジック ---
         function requestSensor() {
-            // iOS権限リクエスト
             if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
                 DeviceMotionEvent.requestPermission()
                     .then(response => {
@@ -263,8 +254,10 @@
         }
 
         function startSensing() {
-            startBtn.style.display = 'none'; // ボタンを消す
+            startBtn.style.display = 'none';
             window.addEventListener('devicemotion', handleMotion);
+            // センサー開始時も「正常」であることを明示
+            setRulerState(false);
         }
 
         function handleMotion(event) {
@@ -296,21 +289,15 @@
 
             lastX = x; lastY = y; lastZ = z;
 
-            // デバッグ用
-            // debugLog.innerText = `Speed: ${speed.toFixed(2)}`;
-
             if (speed > THRESHOLD) {
                 // --- 動いている（手で持っている） ---
                 
-                // タイマーキャンセル（まだ「置いた」と判定させない）
                 clearTimeout(stillTimer);
-                
-                // 即座に「正常な定規」にする
-                setRulerState(false); 
+                setRulerState(false); // 正常にする
 
-                // 動きが止まった後、しばらくしてから「バラバラ」にするタイマーセット
+                // 動きが止まったらバラバラにする予約
                 stillTimer = setTimeout(() => {
-                    setRulerState(true);
+                    setRulerState(true); // バラバラにする
                 }, WAIT_TIME_MS);
             }
         }
@@ -320,18 +307,18 @@
             pxPerCm = parseFloat(e.target.value);
             scaleValDisplay.innerText = `1cm = ${pxPerCm}px`;
             
-            // 調整中は一時的に正常に戻して見やすくする
+            // 調整中は正常状態を強制して見やすくする
             const originalState = isChaotic;
             isChaotic = false; 
             renderRuler();
-            // 調整が終わったら元の状態フラグに戻す（ただし即座に反映はしない、次のセンサーイベント待ち）
+            // 調整後、元の状態フラグに戻すが、描画は更新しない（次のアクション待ち）
             isChaotic = originalState;
         });
 
         // 初期化
         renderRuler();
-        // 最初は「待機中」としてバラバラにしておく
-        setRulerState(true);
+        // ★変更点：最初は正常状態からスタート
+        setRulerState(false);
 
     </script>
 </body>
