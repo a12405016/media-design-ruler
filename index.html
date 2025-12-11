@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Motion Chaos Ruler</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: sans-serif;
+            background-color: #f0f2f5;
+            height: 100vh;
+            overflow: hidden;
+            touch-action: manipulation;
+        }
+
+        /* --- 操作パネル --- */
+        .controls {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 200px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .status-box {
+            font-size: 14px;
+            font-weight: bold;
+            color: #333;
+            padding: 5px;
+            border-radius: 4px;
+            text-align: center;
+            background: #eee;
+            transition: background 0.3s, color 0.3s;
+        }
+        
+        /* 状態による色の変化 */
+        .status-normal { background: #4cd137; color: white; } /* 緑：正常 */
+        .status-chaos { background: #00a8ff; color: white; }  /* 青：バラバラ */
+
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .slider-label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+
+        input[type=range] { width: 100%; }
+
+        /* スタートボタン */
+        #start-btn {
+            padding: 12px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            background-color: #ff4757;
+            color: white;
+            border: none;
+            border-radius: 50px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+
+        #debug-log {
+            font-size: 10px;
+            color: #666;
+            margin-top: 5px;
+            height: 30px;
+            overflow: hidden;
+        }
+
+        /* --- 定規エリア --- */
+        #ruler-container {
+            position: fixed;
+            right: 0;
+            top: 0;
+            bottom: 0;
+            width: 80px; /* バラバラになっても見切れにくいよう少し広めに */
+            background-color: rgba(255, 255, 255, 0.9);
+            border-left: 1px solid #999;
+            box-shadow: -2px 0 5px rgba(0,0,0,0.05);
+            pointer-events: none; 
+        }
+
+        .ruler-unit {
+            position: absolute;
+            right: 0;
+            width: 100%;
+            height: 0;
+        }
+
+        /* メモリ線と数字（アニメーション対象） */
+        .tick-mark, .tick-label {
+            position: absolute;
+            right: 0;
+            transition: all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* バネのような動き */
+        }
+
+        /* 線 */
+        .tick-mark {
+            top: 0;
+            height: 1px;
+            background-color: #333;
+        }
+        .major-tick { width: 40px; }
+        .minor-tick { width: 25px; }
+
+        /* 数字 */
+        .tick-label {
+            top: -0.6em;
+            right: 45px;
+            font-size: 14px;
+            color: #333;
+            font-weight: bold;
+            text-align: right;
+            width: 30px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="controls">
+        <div id="status-display" class="status-box">待機中</div>
+
+        <div class="slider-container">
+            <div class="slider-label">メモリ幅調整</div>
+            <input type="range" id="scale-slider" min="20" max="60" step="0.1" value="38">
+            <div id="scale-val" style="font-size:10px; text-align:right;">1cm = 38px</div>
+        </div>
+        
+        <button id="start-btn" onclick="requestSensor()">センサー開始</button>
+        <div id="debug-log"></div>
+    </div>
+
+    <div id="ruler-container">
+        </div>
+
+    <script>
+        // --- 変数定義 ---
+        const rulerContainer = document.getElementById('ruler-container');
+        const slider = document.getElementById('scale-slider');
+        const scaleValDisplay = document.getElementById('scale-val');
+        const statusDisplay = document.getElementById('status-display');
+        const debugLog = document.getElementById('debug-log');
+        const startBtn = document.getElementById('start-btn');
+
+        // 定規設定
+        let pxPerCm = parseFloat(slider.value);
+        const rulerLengthCm = 25;
+        let isChaotic = true; // 初期状態はどうするか（とりあえずバラバラにしておく）
+
+        // センサー用変数
+        let lastX = 0, lastY = 0, lastZ = 0;
+        let stillTimer;
+        const THRESHOLD = 0.3; // 動きの感度
+        const WAIT_TIME_MS = 800; // 机に置いてからバラバラになるまでの時間
+
+        // --- 1. 定規描画ロジック ---
+        function renderRuler() {
+            rulerContainer.innerHTML = '';
+            for (let i = 0; i <= rulerLengthCm; i++) {
+                const yPos = i * pxPerCm;
+
+                // 1cm単位のコンテナ
+                const unit = document.createElement('div');
+                unit.className = 'ruler-unit';
+                unit.style.top = yPos + 'px';
+
+                // 長い線
+                const majorLine = document.createElement('div');
+                majorLine.className = 'tick-mark major-tick';
+                
+                // 数字
+                const label = document.createElement('div');
+                label.className = 'tick-label';
+                label.innerText = i;
+
+                unit.appendChild(majorLine);
+                unit.appendChild(label);
+                rulerContainer.appendChild(unit);
+
+                // 0.5cmの線
+                if (i < rulerLengthCm) {
+                    const minorUnit = document.createElement('div');
+                    minorUnit.className = 'ruler-unit';
+                    minorUnit.style.top = (yPos + (pxPerCm / 2)) + 'px';
+                    const minorLine = document.createElement('div');
+                    minorLine.className = 'tick-mark minor-tick';
+                    minorUnit.appendChild(minorLine);
+                    rulerContainer.appendChild(minorUnit);
+                }
+            }
+            // 描画後に現在の状態（バラバラか正常か）を適用
+            applyState();
+        }
+
+        // --- 2. 状態切り替えロジック ---
+        function setRulerState(makeChaotic) {
+            // 状態が変わらないなら何もしない
+            if (isChaotic === makeChaotic) return;
+
+            isChaotic = makeChaotic;
+            applyState();
+        }
+
+        function applyState() {
+            const elements = document.querySelectorAll('.tick-mark, .tick-label');
+
+            if (isChaotic) {
+                // バラバラにする（机に置いた状態）
+                statusDisplay.innerText = "机置き (バラバラ)";
+                statusDisplay.className = "status-box status-chaos";
+
+                elements.forEach(el => {
+                    const rndX = (Math.random() * 250) + 20; // 左へ大きくズラす
+                    const rndY = (Math.random() - 0.5) * 150; // 上下へズラす
+                    const rndRot = (Math.random() - 0.5) * 360; // 回転
+                    const rndScale = 0.5 + Math.random(); // サイズ変更
+                    
+                    el.style.transform = `translate(-${rndX}px, ${rndY}px) rotate(${rndRot}deg) scale(${rndScale})`;
+                    el.style.opacity = 0.6;
+                });
+            } else {
+                // 正常に戻す（持っている状態）
+                statusDisplay.innerText = "手持ち (正常)";
+                statusDisplay.className = "status-box status-normal";
+
+                elements.forEach(el => {
+                    el.style.transform = 'none';
+                    el.style.opacity = 1;
+                });
+            }
+        }
+
+        // --- 3. センサーロジック ---
+        function requestSensor() {
+            // iOS権限リクエスト
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            startSensing();
+                        } else {
+                            alert("センサー許可が必要です");
+                        }
+                    })
+                    .catch(console.error);
+            } else {
+                startSensing();
+            }
+        }
+
+        function startSensing() {
+            startBtn.style.display = 'none'; // ボタンを消す
+            window.addEventListener('devicemotion', handleMotion);
+        }
+
+        function handleMotion(event) {
+            let x, y, z;
+            
+            // 重力抜き or 重力込み の判定
+            if (event.acceleration && event.acceleration.x !== null) {
+                x = event.acceleration.x;
+                y = event.acceleration.y;
+                z = event.acceleration.z;
+            } else if (event.accelerationIncludingGravity && event.accelerationIncludingGravity.x !== null) {
+                x = event.accelerationIncludingGravity.x;
+                y = event.accelerationIncludingGravity.y;
+                z = event.accelerationIncludingGravity.z;
+                
+                if (lastX === 0 && lastY === 0) {
+                    lastX = x; lastY = y; lastZ = z;
+                    return;
+                }
+            } else {
+                return;
+            }
+
+            // 差分計算
+            const deltaX = Math.abs(x - lastX);
+            const deltaY = Math.abs(y - lastY);
+            const deltaZ = Math.abs(z - lastZ);
+            const speed = deltaX + deltaY + deltaZ;
+
+            lastX = x; lastY = y; lastZ = z;
+
+            // デバッグ用
+            // debugLog.innerText = `Speed: ${speed.toFixed(2)}`;
+
+            if (speed > THRESHOLD) {
+                // --- 動いている（手で持っている） ---
+                
+                // タイマーキャンセル（まだ「置いた」と判定させない）
+                clearTimeout(stillTimer);
+                
+                // 即座に「正常な定規」にする
+                setRulerState(false); 
+
+                // 動きが止まった後、しばらくしてから「バラバラ」にするタイマーセット
+                stillTimer = setTimeout(() => {
+                    setRulerState(true);
+                }, WAIT_TIME_MS);
+            }
+        }
+
+        // --- 4. イベントリスナー ---
+        slider.addEventListener('input', (e) => {
+            pxPerCm = parseFloat(e.target.value);
+            scaleValDisplay.innerText = `1cm = ${pxPerCm}px`;
+            
+            // 調整中は一時的に正常に戻して見やすくする
+            const originalState = isChaotic;
+            isChaotic = false; 
+            renderRuler();
+            // 調整が終わったら元の状態フラグに戻す（ただし即座に反映はしない、次のセンサーイベント待ち）
+            isChaotic = originalState;
+        });
+
+        // 初期化
+        renderRuler();
+        // 最初は「待機中」としてバラバラにしておく
+        setRulerState(true);
+
+    </script>
+</body>
+</html>
