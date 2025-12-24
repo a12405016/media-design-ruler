@@ -3,8 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Motion Chaos Ruler</title>
+    <title>Motion Chaos Ruler v2</title>
     <style>
+        :root {
+            /* 定規の色を管理する変数を追加 */
+            --ruler-color: #333333;
+        }
+
         body {
             margin: 0;
             padding: 0;
@@ -15,124 +20,229 @@
             touch-action: manipulation;
         }
 
+        /* --- スタート画面（オーバーレイ） --- */
+        #start-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.98);
+            z-index: 1000; /* 最前面 */
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            transition: opacity 0.5s;
+        }
+
+        #start-overlay h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        #big-start-btn {
+            padding: 15px 40px;
+            font-size: 20px;
+            font-weight: bold;
+            color: white;
+            background: #ff4757;
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 4px 10px rgba(255, 71, 87, 0.4);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
         /* --- 操作パネル --- */
         .controls {
             position: fixed;
             top: 20px;
+            /* 左側配置のときは右に避けるなどの処理はJSやCSSで調整も可能ですが、
+               ここではシンプルに左上のままにします（定規が左に来るときは少し重なる可能性があります） */
             left: 20px;
-            width: 200px;
+            width: 220px;
             z-index: 100;
             background: rgba(255, 255, 255, 0.95);
             padding: 15px;
             border-radius: 12px;
             box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            display: flex;
+            display: none; /* 最初は非表示 */
             flex-direction: column;
-            gap: 10px;
+            gap: 15px;
         }
+
+        /* パネル内のセクション分け */
+        .control-group {
+            border-bottom: 1px solid #eee;
+            padding-bottom: 10px;
+            margin-bottom: 5px;
+        }
+        .control-group:last-child { border-bottom: none; }
 
         .status-box {
             font-size: 14px;
             font-weight: bold;
             color: #333;
-            padding: 5px;
+            padding: 8px;
             border-radius: 4px;
             text-align: center;
             background: #eee;
             transition: background 0.3s, color 0.3s;
         }
         
-        /* 状態による色の変化 */
-        .status-normal { background: #4cd137; color: white; } /* 緑：正常 */
-        .status-chaos { background: #00a8ff; color: white; }  /* 青：バラバラ */
+        .status-normal { background: #4cd137; color: white; }
+        .status-chaos { background: #00a8ff; color: white; }
 
-        .slider-container {
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .slider-label {
+        .slider-label, .option-label {
             font-size: 12px;
             color: #666;
             margin-bottom: 5px;
+            display: block;
+            font-weight: bold;
         }
 
         input[type=range] { width: 100%; }
 
-        /* スタートボタン */
-        #start-btn {
-            padding: 12px;
-            font-size: 14px;
-            font-weight: bold;
-            cursor: pointer;
-            background-color: #ff4757;
-            color: white;
+        /* オプション入力周り */
+        .radio-group {
+            display: flex;
+            gap: 10px;
+            font-size: 13px;
+        }
+        .color-picker-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        input[type="color"] {
             border: none;
-            border-radius: 50px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            width: 40px;
+            height: 30px;
+            cursor: pointer;
+            background: none;
         }
 
         /* --- 定規エリア --- */
         #ruler-container {
             position: fixed;
-            right: 0;
             top: 0;
             bottom: 0;
             width: 80px; 
             background-color: rgba(255, 255, 255, 0.9);
-            border-left: 1px solid #999;
+            /* デフォルトは右側 */
+            right: 0; 
+            border-left: 1px solid #ccc;
             box-shadow: -2px 0 5px rgba(0,0,0,0.05);
             pointer-events: none; 
+            transition: right 0.3s, left 0.3s; /* 位置切り替えのアニメーション */
+        }
+
+        /* 左側配置用のクラス */
+        #ruler-container.position-left {
+            right: auto;
+            left: 0;
+            border-left: none;
+            border-right: 1px solid #ccc;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.05);
         }
 
         .ruler-unit {
             position: absolute;
-            right: 0;
             width: 100%;
             height: 0;
+            /* デフォルトは右揃え */
+            right: 0; 
+        }
+        
+        /* 左側配置時の内部要素 */
+        #ruler-container.position-left .ruler-unit {
+            right: auto;
+            left: 0;
         }
 
-        /* メモリ線と数字（アニメーション対象） */
+        /* メモリ線と数字 */
         .tick-mark, .tick-label {
             position: absolute;
-            right: 0;
-            transition: all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275); /* バネのような動き */
+            transition: all 0.8s cubic-bezier(0.175, 0.885, 0.32, 1.275);
         }
 
         /* 線 */
         .tick-mark {
             top: 0;
             height: 1px;
-            background-color: #333;
+            background-color: var(--ruler-color); /* 変数を使用 */
         }
+        
+        /* デフォルト（右側）の線の位置 */
+        #ruler-container:not(.position-left) .tick-mark { right: 0; }
+        /* 左側の線の位置 */
+        #ruler-container.position-left .tick-mark { left: 0; }
+
         .major-tick { width: 40px; }
         .minor-tick { width: 25px; }
 
         /* 数字 */
         .tick-label {
             top: -0.6em;
-            right: 45px;
             font-size: 14px;
-            color: #333;
+            color: var(--ruler-color); /* 変数を使用 */
             font-weight: bold;
-            text-align: right;
             width: 30px;
+        }
+
+        /* デフォルト（右側）の数字位置 */
+        #ruler-container:not(.position-left) .tick-label {
+            right: 45px;
+            text-align: right;
+        }
+        /* 左側の数字位置 */
+        #ruler-container.position-left .tick-label {
+            left: 45px;
+            text-align: left;
         }
 
     </style>
 </head>
 <body>
 
-    <div class="controls">
+    <div id="start-overlay">
+        <h1>Motion Chaos Ruler</h1>
+        <p style="margin-bottom:30px; color:#666;">動きに合わせて定規が崩壊します</p>
+        <button id="big-start-btn" onclick="initApp()">START</button>
+    </div>
+
+    <div class="controls" id="main-controls">
         <div id="status-display" class="status-box">待機中</div>
 
-        <div class="slider-container">
-            <div class="slider-label">メモリ幅調整</div>
+        <div class="control-group">
+            <div class="slider-label">キャリブレーション (拡大/縮小)</div>
             <input type="range" id="scale-slider" min="20" max="60" step="0.1" value="38">
             <div id="scale-val" style="font-size:10px; text-align:right;">1cm = 38px</div>
         </div>
-        
-        <button id="start-btn" onclick="requestSensor()">センサー開始</button>
+
+        <div class="control-group">
+            <div class="option-label">定規の位置</div>
+            <div class="radio-group">
+                <label><input type="radio" name="ruler-pos" value="right" checked onchange="changePosition('right')"> 右側</label>
+                <label><input type="radio" name="ruler-pos" value="left" onchange="changePosition('left')"> 左側</label>
+            </div>
+        </div>
+
+        <div class="control-group">
+            <div class="option-label">定規の色</div>
+            <div class="color-picker-wrapper">
+                <input type="color" id="color-picker" value="#333333" oninput="changeColor(this.value)">
+                <span style="font-size:10px; color:#666;">クリックして変更</span>
+            </div>
+        </div>
     </div>
 
     <div id="ruler-container">
@@ -144,22 +254,82 @@
         const slider = document.getElementById('scale-slider');
         const scaleValDisplay = document.getElementById('scale-val');
         const statusDisplay = document.getElementById('status-display');
-        const startBtn = document.getElementById('start-btn');
+        const startOverlay = document.getElementById('start-overlay');
+        const mainControls = document.getElementById('main-controls');
 
         // 定規設定
         let pxPerCm = parseFloat(slider.value);
         const rulerLengthCm = 25;
-        
-        // ★変更点：初期状態を false（正常）にする
-        let isChaotic = false; 
+        let isChaotic = false;
+        let isLeftSided = false; // 左側配置フラグ
 
         // センサー用変数
         let lastX = 0, lastY = 0, lastZ = 0;
         let stillTimer;
         const THRESHOLD = 0.3; // 動きの感度
-        const WAIT_TIME_MS = 800; // 机に置いてからバラバラになるまでの時間
+        const WAIT_TIME_MS = 800; // 静止してから崩れるまでの時間
 
-        // --- 1. 定規描画ロジック ---
+        // --- 1. アプリ開始処理 ---
+        function initApp() {
+            // センサー許可のリクエスト
+            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
+                DeviceMotionEvent.requestPermission()
+                    .then(response => {
+                        if (response === 'granted') {
+                            startGameLogic();
+                        } else {
+                            alert("センサー許可が必要です。リロードして再度試してください。");
+                        }
+                    })
+                    .catch(e => {
+                        console.error(e);
+                        alert("エラーが発生しました: " + e);
+                    });
+            } else {
+                // PCやAndroidなど許可不要な場合
+                startGameLogic();
+            }
+        }
+
+        function startGameLogic() {
+            // UI切り替え
+            startOverlay.style.opacity = 0;
+            setTimeout(() => {
+                startOverlay.style.display = 'none';
+                mainControls.style.display = 'flex'; // コントロール表示
+            }, 500);
+
+            // センサーイベント開始
+            window.addEventListener('devicemotion', handleMotion);
+            
+            // 初期描画
+            renderRuler();
+            setRulerState(false);
+        }
+
+        // --- 2. オプション機能 ---
+        
+        // 位置切り替え
+        function changePosition(pos) {
+            if (pos === 'left') {
+                rulerContainer.classList.add('position-left');
+                isLeftSided = true;
+                // パネルが重ならないようにパネル位置を少しずらすなどの配慮も可能ですが、
+                // 今回はシンプルな実装にとどめます。
+            } else {
+                rulerContainer.classList.remove('position-left');
+                isLeftSided = false;
+            }
+            // バラバラ方向が変わるので再適用
+            applyState();
+        }
+
+        // 色切り替え
+        function changeColor(colorVal) {
+            document.documentElement.style.setProperty('--ruler-color', colorVal);
+        }
+
+        // --- 3. 定規描画ロジック ---
         function renderRuler() {
             rulerContainer.innerHTML = '';
             for (let i = 0; i <= rulerLengthCm; i++) {
@@ -194,15 +364,12 @@
                     rulerContainer.appendChild(minorUnit);
                 }
             }
-            // 描画後に現在の状態を適用
             applyState();
         }
 
-        // --- 2. 状態切り替えロジック ---
+        // --- 4. 状態切り替えロジック ---
         function setRulerState(makeChaotic) {
-            // 状態が変わらないなら何もしない
             if (isChaotic === makeChaotic) return;
-
             isChaotic = makeChaotic;
             applyState();
         }
@@ -216,12 +383,15 @@
                 statusDisplay.className = "status-box status-chaos";
 
                 elements.forEach(el => {
-                    const rndX = (Math.random() * 250) + 20; // 左へ大きくズラす
+                    // 右配置なら左(-X)へ飛ばす。左配置なら右(+X)へ飛ばす。
+                    const direction = isLeftSided ? 1 : -1;
+                    
+                    const rndX = direction * ((Math.random() * 250) + 20); // 横方向へのズレ
                     const rndY = (Math.random() - 0.5) * 150; // 上下へズラす
                     const rndRot = (Math.random() - 0.5) * 360; // 回転
                     const rndScale = 0.5 + Math.random(); // サイズ変更
                     
-                    el.style.transform = `translate(-${rndX}px, ${rndY}px) rotate(${rndRot}deg) scale(${rndScale})`;
+                    el.style.transform = `translate(${rndX}px, ${rndY}px) rotate(${rndRot}deg) scale(${rndScale})`;
                     el.style.opacity = 0.6;
                 });
             } else {
@@ -236,34 +406,10 @@
             }
         }
 
-        // --- 3. センサーロジック ---
-        function requestSensor() {
-            if (typeof DeviceMotionEvent !== 'undefined' && typeof DeviceMotionEvent.requestPermission === 'function') {
-                DeviceMotionEvent.requestPermission()
-                    .then(response => {
-                        if (response === 'granted') {
-                            startSensing();
-                        } else {
-                            alert("センサー許可が必要です");
-                        }
-                    })
-                    .catch(console.error);
-            } else {
-                startSensing();
-            }
-        }
-
-        function startSensing() {
-            startBtn.style.display = 'none';
-            window.addEventListener('devicemotion', handleMotion);
-            // センサー開始時も「正常」であることを明示
-            setRulerState(false);
-        }
-
+        // --- 5. センサーロジック ---
         function handleMotion(event) {
             let x, y, z;
             
-            // 重力抜き or 重力込み の判定
             if (event.acceleration && event.acceleration.x !== null) {
                 x = event.acceleration.x;
                 y = event.acceleration.y;
@@ -281,7 +427,6 @@
                 return;
             }
 
-            // 差分計算
             const deltaX = Math.abs(x - lastX);
             const deltaY = Math.abs(y - lastY);
             const deltaZ = Math.abs(z - lastZ);
@@ -290,35 +435,28 @@
             lastX = x; lastY = y; lastZ = z;
 
             if (speed > THRESHOLD) {
-                // --- 動いている（手で持っている） ---
-                
+                // 動いている
                 clearTimeout(stillTimer);
-                setRulerState(false); // 正常にする
+                setRulerState(false); // 正常
 
-                // 動きが止まったらバラバラにする予約
+                // 止まったらバラバラにする予約
                 stillTimer = setTimeout(() => {
-                    setRulerState(true); // バラバラにする
+                    setRulerState(true);
                 }, WAIT_TIME_MS);
             }
         }
 
-        // --- 4. イベントリスナー ---
+        // --- 6. スライダーイベント ---
         slider.addEventListener('input', (e) => {
             pxPerCm = parseFloat(e.target.value);
             scaleValDisplay.innerText = `1cm = ${pxPerCm}px`;
             
-            // 調整中は正常状態を強制して見やすくする
+            // 調整中は一時的に正常状態で見せる
             const originalState = isChaotic;
             isChaotic = false; 
             renderRuler();
-            // 調整後、元の状態フラグに戻すが、描画は更新しない（次のアクション待ち）
-            isChaotic = originalState;
+            isChaotic = originalState; // 状態フラグだけ戻しておく
         });
-
-        // 初期化
-        renderRuler();
-        // ★変更点：最初は正常状態からスタート
-        setRulerState(false);
 
     </script>
 </body>
