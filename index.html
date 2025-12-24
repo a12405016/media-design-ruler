@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-    <title>Motion Chaos Ruler v2</title>
+    <title>Motion Chaos Ruler v2.1</title>
     <style>
         :root {
-            /* 定規の色を管理する変数を追加 */
+            /* 定規の色を管理する変数 */
             --ruler-color: #333333;
         }
 
@@ -65,9 +65,10 @@
         .controls {
             position: fixed;
             top: 20px;
-            /* 左側配置のときは右に避けるなどの処理はJSやCSSで調整も可能ですが、
-               ここではシンプルに左上のままにします（定規が左に来るときは少し重なる可能性があります） */
-            left: 20px;
+            /* デフォルト：左配置 */
+            left: 20px; 
+            right: auto; /* 明示的に指定 */
+
             width: 220px;
             z-index: 100;
             background: rgba(255, 255, 255, 0.95);
@@ -77,6 +78,15 @@
             display: none; /* 最初は非表示 */
             flex-direction: column;
             gap: 15px;
+
+            /* 位置移動のアニメーション */
+            transition: all 0.3s ease;
+        }
+
+        /* ★追加：パネルを右側に移動させるクラス */
+        .controls.move-right {
+            left: auto;
+            right: 20px;
         }
 
         /* パネル内のセクション分け */
@@ -313,11 +323,13 @@
         function changePosition(pos) {
             if (pos === 'left') {
                 rulerContainer.classList.add('position-left');
+                // ★修正点：定規が左に来たらパネルを右へ逃がす
+                mainControls.classList.add('move-right');
                 isLeftSided = true;
-                // パネルが重ならないようにパネル位置を少しずらすなどの配慮も可能ですが、
-                // 今回はシンプルな実装にとどめます。
             } else {
                 rulerContainer.classList.remove('position-left');
+                // ★修正点：定規が右ならパネルは左へ戻す
+                mainControls.classList.remove('move-right');
                 isLeftSided = false;
             }
             // バラバラ方向が変わるので再適用
